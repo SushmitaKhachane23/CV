@@ -1,1 +1,26 @@
+from ultralytics import YOLO
+from PIL import Image
+import matplotlib.pyplot as plt
 
+# Load pretrained YOLOv8 model
+model = YOLO("yolov8x.pt") # extra large (best accuracy)
+# Upload an image in Colab
+from google.colab import files
+uploaded = files.upload()
+
+# Get uploaded image name
+image_path = list(uploaded.keys())[0]
+
+# Run object detection
+results = model(image_path)
+
+# Show results
+results[0].show()
+
+# Save output image
+results[0].save(filename="output.jpg")
+
+# Display saved image
+img = Image.open("output.jpg")
+plt.imshow(img)
+plt.axis("off")
