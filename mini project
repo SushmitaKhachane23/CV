@@ -1,1 +1,174 @@
+!pip install torch torchvision transformers scikit-learn gradio pillow
 
+import torch
+import numpy as np
+import os
+from PIL import Image
+from transformers import CLIPProcessor, CLIPModel
+from sklearn.ensemble import RandomForestClassifier
+import torchvision.transforms as transforms
+import gradio as gr
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+print("Running on:", device)
+
+
+
+model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
+processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
+
+augment = transforms.Compose([
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(25),
+    transforms.ColorJitter(brightness=0.2,contrast=0.2),
+])
+
+
+
+def extract_features(img):
+
+    inputs = processor(images=img, return_tensors="pt").to(device)
+
+    with torch.no_grad():
+        features = model.get_image_features(**inputs)
+
+    # Access the 'pooler_output' from the BaseModelOutputWithPooling object
+    # if the model returns an object instead of a direct tensor.
+    if hasattr(features, 'pooler_output'):
+        return features.pooler_output.cpu().numpy().flatten()
+    else:
+        return features.cpu().numpy().flatten()
+
+
+dataset_path = "/content/dataset/dataset"
+
+X=[]
+y=[]
+
+for label,category in enumerate(["real","ai"]):
+
+    folder=os.path.join(dataset_path,category)
+
+    for file in os.listdir(folder):
+
+        path=os.path.join(folder,file)
+
+        img=Image.open(path).convert("RGB")
+
+        X.append(extract_features(img))
+        y.append(label)
+
+        for i in range(10):
+            aug=augment(img)
+            X.append(extract_features(aug))
+            y.append(label)
+
+X=np.array(X)
+y=np.array(y)
+
+print("Training samples:",len(X))
+
+
+
+classifier = RandomForestClassifier(
+    n_estimators=200,
+    random_state=42
+)
+
+classifier.fit(X,y)
+
+print("Model ready!")
+
+
+def detect(image):
+
+    img=image.convert("RGB")
+
+    features=extract_features(img)
+
+    prediction=classifier.predict([features])[0]
+
+    probability=classifier.predict_proba([features])[0]
+
+    if prediction==1:
+
+        confidence=probability[1]
+
+        result="⚠️ AI Generated Image"
+
+        color="red"
+
+    else:
+
+        confidence=probability[0]
+
+        result="✅ Real Photograph"
+
+        color="green"
+
+    return result, float(confidence)
+
+
+with gr.Blocks(theme=gr.themes.Glass()) as demo:
+
+    gr.Markdown(
+    """
+    # 🧠 AI Generated Image Detector
+
+    Upload an image to determine whether it was created by **Artificial Intelligence**
+    or captured as a **real photograph**.
+
+    This system uses **OpenAI CLIP + Machine Learning** to analyze visual patterns.
+    """
+    )
+
+    with gr.Row():
+
+        with gr.Column():
+
+            image_input = gr.Image(
+                type="pil",
+                label="Upload Image",
+                height=350
+            )
+
+            detect_button = gr.Button(
+                "🔍 Analyze Image",
+                variant="primary"
+            )
+
+        with gr.Column():
+
+            result_text = gr.Textbox(
+                label="Prediction Result",
+                lines=2
+            )
+
+            confidence_bar = gr.Slider(
+                minimum=0,
+                maximum=1,
+                label="Confidence Level",
+                interactive=False
+            )
+
+    detect_button.click(
+        fn=detect,
+        inputs=image_input,
+        outputs=[result_text,confidence_bar]
+    )
+
+    gr.Markdown(
+    """
+    ---
+    ### 📊 Model Details
+
+    **Feature Extractor:** OpenAI CLIP
+    **Classifier:** Random Forest
+    **Dataset:** 12 images with augmentation
+    **Purpose:** Detect AI-generated imagery
+    """
+    )
+
+demo.launch()
