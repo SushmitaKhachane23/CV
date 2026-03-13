@@ -1,1 +1,95 @@
+# ==========================================
+# Optical Flow - Frame by Frame Images
+# ==========================================
 
+!pip install opencv-python-headless
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from google.colab import files
+
+# ------------------------------
+# Upload Video
+# ------------------------------
+print("Upload your video:")
+uploaded = files.upload()
+video_path = list(uploaded.keys())[0]
+
+cap = cv2.VideoCapture(video_path)
+
+ret, frame1 = cap.read()
+if not ret:
+    print("Error reading video")
+    cap.release()
+    exit()
+
+prev_gray = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
+
+frame_count = 1
+max_frames_to_show = 5   # change if you want more frames
+
+# Parameters
+step = 25
+scale = 12
+motion_threshold = 2.0
+thickness = 4
+kernel = np.ones((5,5), np.uint8)
+
+plt.figure(figsize=(12,8))
+
+while frame_count <= max_frames_to_show:
+    ret, frame2 = cap.read()
+    if not ret:
+        break
+
+    gray = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
+
+    # Dense Optical Flow (Farneback)
+    flow = cv2.calcOpticalFlowFarneback(
+        prev_gray, gray, None,
+        0.5, 3, 15, 3, 5, 1.2, 0
+    )
+
+    magnitude, angle = cv2.cartToPolar(flow[...,0], flow[...,1])
+
+    motion_mask = magnitude > motion_threshold
+    motion_mask = motion_mask.astype(np.uint8) * 255
+    motion_mask = cv2.morphologyEx(motion_mask, cv2.MORPH_CLOSE, kernel)
+
+    output = frame2.copy()
+
+    height, width = gray.shape
+
+    # Draw arrows only on moving object
+    for y in range(0, height, step):
+        for x in range(0, width, step):
+            if motion_mask[y, x] == 255:
+                fx, fy = flow[y, x]
+                end_x = int(x + fx * scale)
+                end_y = int(y + fy * scale)
+
+                cv2.arrowedLine(
+                    output,
+                    (x, y),
+                    (end_x, end_y),
+                    (0, 0, 255),
+                    thickness,
+                    tipLength=0.5
+                )
+
+    # Convert BGR to RGB for display
+    output_rgb = cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
+
+    plt.subplot(1, max_frames_to_show, frame_count)
+    plt.imshow(output_rgb)
+    plt.title(f"Frame {frame_count+1}")
+    plt.axis("off")
+
+    prev_gray = gray
+    frame_count += 1
+
+plt.tight_layout()
+plt.show()
+
+cap.release()
